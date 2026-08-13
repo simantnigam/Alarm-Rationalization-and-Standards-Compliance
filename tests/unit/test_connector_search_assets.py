@@ -1,7 +1,7 @@
-"""AlarmApiClient.search_assets: auth header injection, response parsing, and basic
-error mapping. Phase 3 extends this connector with retry/pagination/timeout/trace-header
-tests for every endpoint; this is the first slice, built for the walking skeleton
-(02-phases.md Phase 2.5) and re-used unmodified by Phase 3.
+"""AlarmApiClient.search_assets and the cross-cutting connector behaviors it exercises
+first: auth, trace propagation, retry with full jitter, Retry-After, timeout/5xx
+exhaustion, and malformed-response handling (02-phases.md Phase 3). Every other
+endpoint method reuses this same machinery without re-testing it.
 """
 
 from __future__ import annotations
@@ -11,68 +11,56 @@ import pytest
 import respx
 
 from connectors.alarm_api.client import AlarmApiClient
-from connectors.alarm_api.errors import AuthError, UpstreamTimeoutError, UpstreamUnavailableError
+from connectors.alarm_api.errors import (
+    AuthError,
+    ContractViolationError,
+    UpstreamTimeoutError,
+    UpstreamUnavailableError,
+)
+from connectors.alarm_api.trace import TraceContext
 
 BASE_URL = "http://alarm-api:8000"
 
 
+def _search_response(**overrides: object) -> dict:
+    body = {
+        "results": [
+            {
+                "asset_id": "NP-U1-BFP-101",
+                "asset_name": "Boiler Feed Pump 101",
+                "asset_type": "pump",
+                "site": "NorthPlant",
+                "unit": "Unit 1",
+                "criticality": "critical",
+            }
+        ],
+        "total": 1,
+        "query": "Boiler Feed Pump 101",
+        "limit": 10,
+        "meta": {"request_id": "req-1", "trace_id": "trace-1"},
+    }
+    body.update(overrides)
+    return body
+
+
 @pytest.fixture
 def client() -> AlarmApiClient:
-    return AlarmApiClient(base_url=BASE_URL, token="demo-token")
+    # Tiny backoff bounds keep the retry tests fast without mocking asyncio.sleep.
+    return AlarmApiClient(
+        base_url=BASE_URL, token="demo-token", backoff_base=0.001, backoff_cap=0.01
+    )
 
 
 @respx.mock
 async def test_search_assets_sends_bearer_token(client: AlarmApiClient) -> None:
     route = respx.get(f"{BASE_URL}/assets/search").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "results": [
-                    {
-                        "asset_id": "NP-U1-BFP-101",
-                        "asset_name": "Boiler Feed Pump 101",
-                        "asset_type": "pump",
-                        "site": "NorthPlant",
-                        "unit": "Unit 1",
-                        "criticality": "critical",
-                    }
-                ],
-                "total": 1,
-                "query": "Boiler Feed Pump 101",
-                "limit": 10,
-                "meta": {"request_id": "req-1", "trace_id": "trace-1"},
-            },
-        )
+        return_value=httpx.Response(200, json=_search_response())
     )
     result = await client.search_assets(query="Boiler Feed Pump 101", limit=10)
 
     assert route.calls.last.request.headers["Authorization"] == "Bearer demo-token"
     assert result.results[0].asset_id == "NP-U1-BFP-101"
     assert result.total == 1
-
-
-@respx.mock
-async def test_search_assets_forwards_trace_id_header_when_given(client: AlarmApiClient) -> None:
-    route = respx.get(f"{BASE_URL}/assets/search").mock(
-        return_value=httpx.Response(
-            200, json={"results": [], "total": 0, "query": "x", "limit": 20, "meta": {}}
-        )
-    )
-    await client.search_assets(query="x", trace_id="trace-propagation-test")
-
-    assert route.calls.last.request.headers["trace_id"] == "trace-propagation-test"
-
-
-@respx.mock
-async def test_search_assets_omits_trace_id_header_when_not_given(client: AlarmApiClient) -> None:
-    route = respx.get(f"{BASE_URL}/assets/search").mock(
-        return_value=httpx.Response(
-            200, json={"results": [], "total": 0, "query": "x", "limit": 20, "meta": {}}
-        )
-    )
-    await client.search_assets(query="x")
-
-    assert "trace_id" not in route.calls.last.request.headers
 
 
 @respx.mock
@@ -93,6 +81,32 @@ async def test_search_assets_parses_optional_filters_into_query_params(
 
 
 @respx.mock
+async def test_trace_context_headers_are_sent(client: AlarmApiClient) -> None:
+    route = respx.get(f"{BASE_URL}/assets/search").mock(
+        return_value=httpx.Response(200, json=_search_response())
+    )
+    await client.search_assets(
+        query="x",
+        trace=TraceContext(trace_id="trace-99", client_id="gui", metadata_tag="demo"),
+    )
+
+    sent = route.calls.last.request.headers
+    assert sent["trace_id"] == "trace-99"
+    assert sent["x-client-id"] == "gui"
+    assert sent["x-metadata-tag"] == "demo"
+
+
+@respx.mock
+async def test_no_trace_context_sends_no_trace_headers(client: AlarmApiClient) -> None:
+    route = respx.get(f"{BASE_URL}/assets/search").mock(
+        return_value=httpx.Response(200, json=_search_response())
+    )
+    await client.search_assets(query="x")
+
+    assert "trace_id" not in route.calls.last.request.headers
+
+
+@respx.mock
 async def test_401_maps_to_auth_error_without_leaking_token(client: AlarmApiClient) -> None:
     respx.get(f"{BASE_URL}/assets/search").mock(return_value=httpx.Response(401, json={}))
 
@@ -102,16 +116,64 @@ async def test_401_maps_to_auth_error_without_leaking_token(client: AlarmApiClie
 
 
 @respx.mock
-async def test_5xx_maps_to_upstream_unavailable(client: AlarmApiClient) -> None:
-    respx.get(f"{BASE_URL}/assets/search").mock(return_value=httpx.Response(500, json={}))
-
-    with pytest.raises(UpstreamUnavailableError):
+async def test_malformed_response_body_raises_contract_violation(
+    client: AlarmApiClient,
+) -> None:
+    respx.get(f"{BASE_URL}/assets/search").mock(
+        return_value=httpx.Response(200, json={"unexpected": "shape"})
+    )
+    with pytest.raises(ContractViolationError):
         await client.search_assets(query="x")
 
 
 @respx.mock
-async def test_timeout_maps_to_upstream_timeout(client: AlarmApiClient) -> None:
-    respx.get(f"{BASE_URL}/assets/search").mock(side_effect=httpx.ConnectTimeout("boom"))
+async def test_429_then_success_retries_transparently(client: AlarmApiClient) -> None:
+    route = respx.get(f"{BASE_URL}/assets/search").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "0"}, json={}),
+            httpx.Response(200, json=_search_response()),
+        ]
+    )
+    result = await client.search_assets(query="x")
 
+    assert route.call_count == 2
+    assert result.total == 1
+
+
+@respx.mock
+async def test_retry_after_header_is_honoured(client: AlarmApiClient) -> None:
+    captured_delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        captured_delays.append(delay)
+
+    client._sleep_fn = fake_sleep  # type: ignore[method-assign]
+    respx.get(f"{BASE_URL}/assets/search").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "7"}, json={}),
+            httpx.Response(200, json=_search_response()),
+        ]
+    )
+    await client.search_assets(query="x")
+
+    assert captured_delays == [7.0]
+
+
+@respx.mock
+async def test_5xx_exhausts_retries_and_maps_to_upstream_unavailable(
+    client: AlarmApiClient,
+) -> None:
+    route = respx.get(f"{BASE_URL}/assets/search").mock(return_value=httpx.Response(503, json={}))
+    with pytest.raises(UpstreamUnavailableError):
+        await client.search_assets(query="x")
+    assert route.call_count == client.max_attempts
+
+
+@respx.mock
+async def test_timeout_exhausts_retries_and_maps_to_upstream_timeout(
+    client: AlarmApiClient,
+) -> None:
+    route = respx.get(f"{BASE_URL}/assets/search").mock(side_effect=httpx.ConnectTimeout("boom"))
     with pytest.raises(UpstreamTimeoutError):
         await client.search_assets(query="x")
+    assert route.call_count == client.max_attempts

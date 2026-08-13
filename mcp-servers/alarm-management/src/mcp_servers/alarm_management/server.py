@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse
 
 from connectors.alarm_api.client import AlarmApiClient
 from connectors.alarm_api.errors import AlarmApiError
+from connectors.alarm_api.trace import TraceContext
 from mcp_servers.alarm_management.config import AlarmMcpSettings
 from mcp_servers.alarm_management.schemas import AssetResult, SearchAssetsOutput
 
@@ -67,7 +68,7 @@ def build_server(settings: AlarmMcpSettings) -> FastMCP:
                 limit=limit,
                 unit=unit,
                 site=site,
-                trace_id=_trace_id_from(ctx),
+                trace=TraceContext(trace_id=_trace_id_from(ctx)),
             )
         except AlarmApiError as exc:
             # Minimal mapping for the walking skeleton -- Phase 4 replaces this with the
