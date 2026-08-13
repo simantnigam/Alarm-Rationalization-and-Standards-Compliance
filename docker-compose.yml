@@ -1,0 +1,182 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    platform: linux/amd64
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    platform: linux/amd64
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # The qdrant/qdrant image has no python3/curl/wget -- bash is present, so a
+      # bare TCP connect via /dev/tcp is the healthcheck (sufficient: the service
+      # only accepts connections once it's actually serving).
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-init:
+    build: .
+    platform: linux/amd64
+    command: ["python", "-m", "scripts.init_db"]
+    environment:
+      POSTGRES_SUPERUSER_DSN: postgresql://postgres:${POSTGRES_SUPERUSER_PASSWORD:-postgres}@postgres:5432/postgres
+      COPILOT_DB_NAME: ${COPILOT_DB_NAME:-copilot}
+      COPILOT_DB_USER: ${COPILOT_DB_USER:-copilot_rw}
+      COPILOT_DB_PASSWORD: ${COPILOT_DB_PASSWORD:-copilot-rw-pw}
+      ALARMDB_NAME: ${ALARMDB_NAME:-alarmdb}
+      ALARMDB_USER: ${ALARMDB_USER:-alarmapi_rw}
+      ALARMDB_PASSWORD: ${ALARMDB_PASSWORD:-alarmapi-rw-pw}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  alarm-api:
+    build: .
+    platform: linux/amd64
+    command: ["python", "-m", "alarm_api_simulator"]
+    environment:
+      ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
+      ALARMDB_HOST: postgres
+      ALARMDB_PORT: "5432"
+      ALARMDB_NAME: ${ALARMDB_NAME:-alarmdb}
+      ALARMDB_USER: ${ALARMDB_USER:-alarmapi_rw}
+      ALARMDB_PASSWORD: ${ALARMDB_PASSWORD:-alarmapi-rw-pw}
+      SIM_PROFILE: ${SIM_PROFILE:-realistic}
+      SIM_SEED: ${SIM_SEED:-20260812}
+      SIM_NOW: ${SIM_NOW:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  rag-bootstrap:
+    build: .
+    platform: linux/amd64
+    command: ["python", "-m", "scripts.rag_bootstrap"]
+    # One-shot, restart: no -- a no-op is not implemented yet (RAG_BOOTSTRAP_ON_START
+    # gating is a Phase 11 refinement); today this always (re)ingests the corpus, which
+    # is what a clean `docker compose up --build` needs (A-11).
+    restart: "no"
+    environment:
+      DOCUMENT_PATH: ${DOCUMENT_PATH:-./rag/documents}
+      QDRANT_COLLECTION_ALIAS: ${QDRANT_COLLECTION_ALIAS:-policy_chunks}
+      VECTOR_STORE_URL: http://qdrant:6333
+      FASTEMBED_CACHE_PATH: /opt/fastembed_cache
+      HF_HUB_OFFLINE: "1"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  # The real lifecycle owner (D-12): `docker compose --profile batch run --rm rag-ingest`.
+  # Not started by a bare `up`.
+  rag-ingest:
+    build: .
+    platform: linux/amd64
+    profiles: ["batch"]
+    command: ["python", "-m", "scripts.rag_bootstrap"]
+    environment:
+      DOCUMENT_PATH: ${DOCUMENT_PATH:-./rag/documents}
+      QDRANT_COLLECTION_ALIAS: ${QDRANT_COLLECTION_ALIAS:-policy_chunks}
+      VECTOR_STORE_URL: http://qdrant:6333
+      FASTEMBED_CACHE_PATH: /opt/fastembed_cache
+      HF_HUB_OFFLINE: "1"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  alarm-mcp:
+    build: .
+    platform: linux/amd64
+    command: ["python", "-m", "mcp_servers.alarm_management"]
+    environment:
+      ALARM_API_BASE_URL: http://alarm-api:8000
+      ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
+      MCP_TRANSPORT: http
+      MCP_ALARM_HOST: 0.0.0.0
+      MCP_ALARM_PORT: "9000"
+      MCP_ALLOWED_HOSTS: "alarm-mcp:9000,127.0.0.1:*,localhost:*"
+    ports:
+      - "9000:9000"
+    depends_on:
+      alarm-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/health')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  copilot-api:
+    build: .
+    platform: linux/amd64
+    command: ["python", "-m", "copilot"]
+    environment:
+      MCP_ALARM_URL: http://alarm-mcp:9000/mcp
+      VECTOR_STORE_URL: http://qdrant:6333
+      QDRANT_COLLECTION_ALIAS: ${QDRANT_COLLECTION_ALIAS:-policy_chunks}
+      FASTEMBED_CACHE_PATH: /opt/fastembed_cache
+      HF_HUB_OFFLINE: "1"
+      COPILOT_API_HOST: 0.0.0.0
+      COPILOT_API_PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      alarm-mcp:
+        condition: service_healthy
+      rag-bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  gui:
+    build: .
+    platform: linux/amd64
+    command: ["streamlit", "run", "apps/frontend/src/frontend/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    environment:
+      COPILOT_API_URL: http://copilot-api:8080
+      GUI_TITLE: ${GUI_TITLE:-Alarm Rationalization Copilot}
+    ports:
+      - "8501:8501"
+    depends_on:
+      copilot-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+volumes:
+  postgres_data:
+  qdrant_data:

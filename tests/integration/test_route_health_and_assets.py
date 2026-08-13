@@ -4,18 +4,9 @@ response shape (`results[].asset_id`) is pinned exactly by the Postman collectio
 
 from __future__ import annotations
 
-import threading
-import time
-from collections.abc import Iterator
-
 import httpx
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
-
-from alarm_api_simulator.config import SimulatorSettings
-from alarm_api_simulator.main import create_app
 
 
 class TestHealth:
@@ -160,7 +151,7 @@ class TestFaultInjection:
         assert "results" not in resp.json()
 
     def test_timeout_fault_exceeds_a_short_client_timeout(
-        self, live_server_url: str, auth_headers: dict[str, str]
+        self, live_simulator_url: str, auth_headers: dict[str, str]
     ) -> None:
         # In-process TestClient can't enforce a real wall-clock timeout (Starlette
         # explicitly warns the `timeout` kwarg is unsupported there), so this one test
@@ -168,7 +159,7 @@ class TestFaultInjection:
         # will do against this same fault in production.
         with (
             pytest.raises(httpx.TimeoutException),
-            httpx.Client(base_url=live_server_url) as client,
+            httpx.Client(base_url=live_simulator_url) as client,
         ):
             client.get(
                 "/assets/search",
@@ -176,22 +167,3 @@ class TestFaultInjection:
                 headers={**auth_headers, "X-Simulate-Fault": "timeout"},
                 timeout=0.5,
             )
-
-
-@pytest.fixture(scope="module")
-def live_server_url(
-    seeded_alarmdb_engine: Engine, simulator_settings: SimulatorSettings
-) -> Iterator[str]:
-    app = create_app(engine=seeded_alarmdb_engine, settings=simulator_settings)
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        time.sleep(0.01)
-    port = server.servers[0].sockets[0].getsockname()[1]
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)

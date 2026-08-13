@@ -7,11 +7,18 @@ requires-python = ">=3.12"
 # Runtime dependencies are added incrementally per phase (uv add), not guessed up front.
 dependencies = [
     "fastapi>=0.141.1",
+    "fastembed>=0.8.0",
     "httpx>=0.28.1",
+    "jsonschema>=4.26.0",
+    "langgraph>=1.2.11",
+    "mcp>=1.2,<2.0",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
+    "qdrant-client>=1.19.0",
     "sqlalchemy>=2.0.52",
+    "streamlit>=1.61.1",
     "structlog>=26.1.0",
     "uvicorn[standard]>=0.52.1",
 ]
@@ -26,6 +33,7 @@ dev = [
     "import-linter>=2.1",
     "pip-audit>=2.7",
     "testcontainers[postgres]>=4.15.0",
+    "respx>=0.23.1",
 ]
 
 [build-system]
