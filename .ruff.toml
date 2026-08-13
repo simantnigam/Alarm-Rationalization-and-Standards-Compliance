@@ -1,0 +1,31 @@
+target-version = "py312"
+line-length = 100
+src = [
+    "apps/backend/src",
+    "apps/frontend",
+    "connectors",
+    "rag",
+    "mcp-servers/alarm-management/src",
+    "services/alarm_api_simulator",
+    "tests",
+    "scripts",
+]
+extend-exclude = ["rag/documents", ".venv"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = []
+
+[lint.isort]
+known-first-party = [
+    "copilot",
+    "frontend",
+    "connectors",
+    "rag",
+    "mcp_servers",
+    "alarm_api_simulator",
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"

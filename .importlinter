@@ -1,0 +1,43 @@
+[importlinter]
+root_packages =
+    copilot
+    frontend
+    connectors
+    mcp_servers
+    alarm_api_simulator
+    rag
+
+# The assignment's central rule, enforced statically: the copilot orchestration layer
+# must reach the Alarm Management API only through MCP. This contract makes a direct
+# `connectors` import from the backend a CI failure, not a code-review hope.
+# Runtime enforcement of the same rule lives in Postgres role grants (Phase 2/0).
+[importlinter:contract:copilot-mcp-boundary]
+name = Copilot backend must reach the Alarm API only through MCP, never via connectors directly
+type = forbidden
+source_modules =
+    copilot
+forbidden_modules =
+    connectors
+
+[importlinter:contract:frontend-thin-client]
+name = Frontend is a thin HTTP client over the copilot API and must not import backend logic
+type = forbidden
+source_modules =
+    frontend
+forbidden_modules =
+    copilot
+
+[importlinter:contract:domain-independence]
+name = Domain is the lowest layer in copilot and must not import anything above it
+type = forbidden
+source_modules =
+    copilot.domain
+forbidden_modules =
+    copilot.api
+    copilot.graph
+    copilot.planning
+    copilot.rag
+    copilot.compliance
+    copilot.mcp
+    copilot.llm
+    copilot.observability

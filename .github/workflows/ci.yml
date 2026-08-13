@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, lint, types, import boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type check — strict core (domain, compliance, mcp, llm)
+        run: |
+          uv run mypy --strict \
+            apps/backend/src/copilot/domain \
+            apps/backend/src/copilot/compliance \
+            apps/backend/src/copilot/mcp \
+            apps/backend/src/copilot/llm
+
+      - name: Import boundaries (import-linter)
+        run: uv run lint-imports
+
+      - name: Dependency audit (pip-audit)
+        run: uv run pip-audit
+
+  test:
+    name: Unit / integration / e2e / RAG tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run test suite (stub LLM provider, no API keys)
+        env:
+          LLM_PROVIDER: stub
+        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  contract:
+    name: Postman contract tests (newman)
+    runs-on: ubuntu-latest
+    # Wired once the simulator (Phase 2) exists; the job is a documented no-op until then
+    # so the CI skeleton is green on an empty test suite (Phase 0 exit gate).
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Newman collections
+        run: |
+          if [ ! -f services/alarm_api_simulator/__init__.py ] || [ -z "$(ls -A services/alarm_api_simulator 2>/dev/null)" ]; then
+            echo "Simulator not yet implemented (Phase 2) — skipping newman run."
+            exit 0
+          fi
+          echo "TODO(Phase 2): start the simulator and run newman against the three postman/ collections."

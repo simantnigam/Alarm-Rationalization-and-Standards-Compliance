@@ -1,7 +1,75 @@
 [project]
-name = "alarm-rationalization-and-standards-compliance"
+name = "alarm-copilot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Alarm Rationalization and Standards Compliance Copilot — MCP + RAG take-home assignment"
 readme = "README.md"
 requires-python = ">=3.12"
+# Runtime dependencies are added incrementally per phase (uv add), not guessed up front.
 dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "pip-audit>=2.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# One project, one dependency resolution, one lockfile (D-10). Every process entrypoint
+# (alarm-api, alarm-mcp, copilot-api, gui, rag-ingest) runs from this same environment;
+# only the `python -m ...` command differs.
+[tool.hatch.build.targets.wheel]
+packages = [
+    "apps/backend/src/copilot",
+    "apps/frontend/src/frontend",
+    "connectors",
+    "rag",
+    "mcp-servers/alarm-management/src/mcp_servers",
+    "services/alarm_api_simulator",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --import-mode=importlib"
+testpaths = ["tests", "rag/tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = [
+    "apps/backend/src/copilot",
+    "apps/frontend",
+    "connectors",
+    "rag",
+    "mcp-servers/alarm-management/src/mcp_servers",
+]
+omit = ["*/tests/*", "*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = [
+    "apps/backend/src",
+    "apps/frontend/src",
+    "connectors",
+    "rag",
+    "mcp-servers/alarm-management/src",
+    "services/alarm_api_simulator",
+]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
