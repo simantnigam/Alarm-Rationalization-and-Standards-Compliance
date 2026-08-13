@@ -14,7 +14,10 @@ extend-exclude = ["rag/documents", ".venv"]
 
 [lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
-ignore = []
+# B008: FastAPI's Query()/Depends()/Header() etc. are designed to be used exactly this
+# way -- they're evaluated fresh per request by FastAPI's DI system, not a mutable
+# default in the Python-footgun sense this rule otherwise correctly flags.
+ignore = ["B008"]
 
 [lint.isort]
 known-first-party = [

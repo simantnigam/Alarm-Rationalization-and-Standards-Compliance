@@ -6,9 +6,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 # Runtime dependencies are added incrementally per phase (uv add), not guessed up front.
 dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
+    "sqlalchemy>=2.0.52",
     "structlog>=26.1.0",
+    "uvicorn[standard]>=0.52.1",
 ]
 
 [dependency-groups]
@@ -20,6 +25,7 @@ dev = [
     "mypy>=1.13",
     "import-linter>=2.1",
     "pip-audit>=2.7",
+    "testcontainers[postgres]>=4.15.0",
 ]
 
 [build-system]
@@ -37,6 +43,7 @@ packages = [
     "rag",
     "mcp-servers/alarm-management/src/mcp_servers",
     "services/alarm_api_simulator",
+    "scripts",
 ]
 
 [tool.pytest.ini_options]
@@ -53,6 +60,7 @@ source = [
     "connectors",
     "rag",
     "mcp-servers/alarm-management/src/mcp_servers",
+    "services/alarm_api_simulator",
 ]
 omit = ["*/tests/*", "*/__main__.py"]
 
@@ -69,6 +77,7 @@ mypy_path = [
     "rag",
     "mcp-servers/alarm-management/src",
     "services/alarm_api_simulator",
+    "scripts",
 ]
 warn_unused_configs = true
 warn_redundant_casts = true

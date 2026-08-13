@@ -72,15 +72,80 @@ jobs:
   contract:
     name: Postman contract tests (newman)
     runs-on: ubuntu-latest
-    # Wired once the simulator (Phase 2) exists; the job is a documented no-op until then
-    # so the CI skeleton is green on an empty test suite (Phase 0 exit gate).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Newman collections
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Provision alarmdb role and database
         run: |
-          if [ ! -f services/alarm_api_simulator/__init__.py ] || [ -z "$(ls -A services/alarm_api_simulator 2>/dev/null)" ]; then
-            echo "Simulator not yet implemented (Phase 2) — skipping newman run."
-            exit 0
-          fi
-          echo "TODO(Phase 2): start the simulator and run newman against the three postman/ collections."
+          uv run python -c "
+          from scripts.init_db import ProvisionSpec, provision_roles_and_databases
+          spec = ProvisionSpec(
+              copilot_db='copilot',
+              copilot_user='copilot_rw',
+              copilot_password='copilot-ci-pw',
+              alarmdb='alarmdb',
+              alarmapi_user='alarmapi_rw',
+              alarmapi_password='alarmapi-ci-pw',
+          )
+          provision_roles_and_databases('postgresql://postgres:postgres@localhost:5432/postgres', spec)
+          "
+
+      - name: Start the simulator (compact profile, deterministic seed)
+        env:
+          ALARM_API_TOKEN: demo-token
+          ALARMDB_HOST: localhost
+          ALARMDB_PORT: "5432"
+          ALARMDB_NAME: alarmdb
+          ALARMDB_USER: alarmapi_rw
+          ALARMDB_PASSWORD: alarmapi-ci-pw
+          SIM_PROFILE: compact
+          SIM_SEED: "20260812"
+          SIM_NOW: "2026-08-13T00:00:00+00:00"
+        run: |
+          nohup uv run python -m alarm_api_simulator > simulator.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/health > /dev/null && echo "simulator up after ${i}s" && exit 0
+            sleep 1
+          done
+          echo "simulator failed to become healthy"; cat simulator.log; exit 1
+
+      - name: Newman — baseline collection
+        run: npx --yes newman run postman/Alarm-API-Simulator.postman_collection.json --env-var baseUrl=http://localhost:8000
+
+      - name: Newman — chaining flows
+        run: npx --yes newman run postman/chaining/Alarm-API-Chaining.postman_collection.json --env-var baseUrl=http://localhost:8000
+
+      - name: Newman — scenarios
+        run: npx --yes newman run postman/scenarios/Alarm-API-Scenarios.postman_collection.json --env-var baseUrl=http://localhost:8000
+
+      - name: Upload simulator log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-log
+          path: simulator.log
+          if-no-files-found: ignore
