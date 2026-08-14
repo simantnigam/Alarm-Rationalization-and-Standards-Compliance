@@ -44,7 +44,7 @@ async def app_client(mcp_alarm_server_url: str, embedder: Embedder) -> TestClien
     rag_service = RagService(RetrievalService(qdrant, embedder, collection_name=COLLECTION))
 
     graph = build_graph(registry, rag_service, StubLLMAdapter())
-    return create_app(graph=graph)
+    return create_app(graph=graph, registry=registry)
 
 
 def test_walking_skeleton_end_to_end(app_client) -> None:

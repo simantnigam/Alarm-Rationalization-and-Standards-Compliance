@@ -1,7 +1,8 @@
 """copilot.mcp.McpToolRegistry: discovery, client-side schema validation, invocation,
 and ToolInvocation recording -- the hand-written MCP client (D-02), first slice for the
-walking skeleton (02-phases.md Phase 2.5). Phase 5 adds multi-server, lazy discovery
-with backoff, and the stdio transport test on top of this same registry.
+walking skeleton (02-phases.md Phase 2.5), against the single live HTTP server. Phase
+5's multi-server, lazy-discovery-with-backoff, and timeout/retry additions are tested in
+tests/integration/test_mcp_client_resilience.py on top of this same registry.
 """
 
 from __future__ import annotations

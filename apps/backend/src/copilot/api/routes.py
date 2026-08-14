@@ -1,6 +1,7 @@
 """POST /api/chat (SSE: tool | citation | done) and GET /api/health. Walking-skeleton
-slice (02-phases.md Phase 2.5); Phase 8 adds /api/tools, /api/conversations/{id}, the
-X-API-Key dependency (A-06), and the approval_required event.
+slice (02-phases.md Phase 2.5); Phase 5 adds /api/health's degraded-but-up reporting
+(R-04); Phase 8 adds /api/tools, /api/conversations/{id}, the X-API-Key dependency
+(A-06), and the approval_required event.
 """
 
 from __future__ import annotations
@@ -14,12 +15,16 @@ from starlette.responses import StreamingResponse
 from copilot.api.schemas import ChatRequest
 from copilot.api.sse import format_sse
 from copilot.graph.state import CopilotState
+from copilot.mcp.registry import McpToolRegistry
 
 router = APIRouter()
 
 
 @router.get("/api/health")
-async def health() -> dict[str, str]:
+async def health(request: Request) -> dict[str, object]:
+    registry: McpToolRegistry = request.app.state.registry
+    if registry.degraded:
+        return {"status": "degraded", "degraded_servers": registry.degraded_servers()}
     return {"status": "ok"}
 
 

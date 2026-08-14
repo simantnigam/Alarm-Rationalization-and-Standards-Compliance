@@ -35,7 +35,7 @@ async def copilot_client(mcp_alarm_server_url: str, embedder: Embedder) -> TestC
     rag_service = RagService(RetrievalService(qdrant, embedder, collection_name=COLLECTION))
 
     graph = build_graph(registry, rag_service, StubLLMAdapter())
-    app = create_app(graph=graph)
+    app = create_app(graph=graph, registry=registry)
     return TestClient(app)
 
 
