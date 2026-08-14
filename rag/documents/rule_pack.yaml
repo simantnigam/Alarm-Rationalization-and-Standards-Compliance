@@ -1,0 +1,88 @@
+# Compliance rule pack (07-rag-corpus.md §4). Every rule carries its source clause; the
+# engine (Phase 7) emits the citation alongside the verdict, so no verdict can exist
+# without provenance. `test_rule_pack_metrics_exist` (rag/tests) loads this file and
+# asserts every predicate.metric is a field on copilot.domain.candidate.RationalizationCandidate
+# -- the coupling guard that keeps this pack from silently drifting from the API's shape.
+
+rules:
+  - rule_id: SAF-001
+    kind: prohibition
+    severity: safety
+    overriding: true # gates, never weighted
+    source: { doc_id: SAF-INST-005, clause_id: "2.1" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: is_sif_related, op: "==", value: true }
+    outcome_when_true: FAIL
+    message: "SIF-linked alarms are ineligible for suppression."
+
+  - rule_id: SUP-001
+    kind: eligibility
+    source: { doc_id: ALM-CRIT-003, clause_id: "3.1" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: occurrences_90d, op: ">=", value: 25 }
+    outcome_when_false: FAIL
+    message: "Fewer than 25 occurrences in the preceding 90 days."
+
+  - rule_id: SUP-002
+    kind: eligibility
+    source: { doc_id: ALM-CRIT-003, clause_id: "3.2" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: nuisance_score, op: ">=", value: 60 }
+    outcome_when_false: FAIL
+    message: "Nuisance score below the 60-point eligibility threshold."
+
+  - rule_id: SUP-003
+    kind: prohibition
+    source: { doc_id: ALM-CRIT-003, clause_id: "3.3" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: severity, op: "==", value: "critical" }
+    outcome_when_true: FAIL
+    message: "Critical-severity alarms are never eligible for suppression."
+
+  - rule_id: SUP-004
+    kind: eligibility
+    source: { doc_id: ALM-CRIT-003, clause_id: "3.4" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: unacknowledged_rate, op: ">=", value: 0.30 }
+    outcome_when_false: NEEDS_REVIEW # weak evidence, not prohibited
+    message: "Unacknowledged rate at or above 30% requires manual Alarm Owner review."
+
+  - rule_id: SITE-NP-001
+    kind: eligibility
+    source: { doc_id: SITE-POL-007, clause_id: "3.2" }
+    applies_to: { site_scope: NorthPlant }
+    predicate: { metric: occurrences_90d, op: ">=", value: 25 }
+    outcome_when_false: FAIL
+    message: "NorthPlant requires at least 25 occurrences in the preceding 90 days."
+
+  - rule_id: SITE-ER-001 # deliberate conflict with SITE-NP-001 -- see 07-rag-corpus.md
+    kind: eligibility
+    source: { doc_id: SITE-POL-008, clause_id: "3.2" }
+    applies_to: { site_scope: EastRefinery }
+    predicate: { metric: occurrences_90d, op: ">=", value: 40 }
+    outcome_when_false: FAIL
+    message: "EastRefinery requires at least 40 occurrences in the preceding 90 days."
+
+  - rule_id: SITE-ER-002
+    kind: eligibility
+    source: { doc_id: SITE-POL-008, clause_id: "3.3" }
+    applies_to: { site_scope: EastRefinery }
+    predicate: { metric: nuisance_score, op: ">=", value: 75 }
+    outcome_when_false: FAIL
+    message: "EastRefinery requires a nuisance score of at least 75."
+
+  - rule_id: RAT-001
+    kind: trigger
+    source: { doc_id: ALM-STD-002, clause_id: "4.1" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: occurrences_90d, op: ">=", value: 25 }
+    outcome_when_true: NEEDS_REVIEW
+    message: "Recurrence trigger: open a rationalization review under ALM-STD-002 §4.1."
+
+  - rule_id: RAT-002
+    kind: trigger
+    source: { doc_id: ALM-STD-002, clause_id: "4.3" }
+    applies_to: { site_scope: ALL }
+    predicate: { metric: chatter_index, op: ">=", value: 6 }
+    outcome_when_true: NEEDS_REVIEW
+    message: "Chattering trigger: open a rationalization review under ALM-STD-002 §4.3."

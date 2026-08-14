@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_CLAUSE_RE = re.compile(r"^###\s+(\S+)\s+(.+)$")
+CLAUSE_RE = re.compile(r"^###\s+(\S+)\s+(.+)$")
 _SECTION_RE = re.compile(r"^##\s+(?!#)(.+)$")
 
 
@@ -40,7 +40,7 @@ def chunk_by_clause(body: str) -> list[Chunk]:
             )
 
     for line in body.splitlines():
-        clause_match = _CLAUSE_RE.match(line)
+        clause_match = CLAUSE_RE.match(line)
         section_match = _SECTION_RE.match(line)
         if clause_match:
             flush()

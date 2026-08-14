@@ -27,5 +27,5 @@ class RagService:
                 score=c.score,
                 snippet=c.snippet,
             )
-            for c in self._retrieval.retrieve(query)
+            for c in self._retrieval.retrieve(query).citations
         ]
