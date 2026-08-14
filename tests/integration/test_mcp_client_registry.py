@@ -21,7 +21,10 @@ async def registry(mcp_alarm_server_url: str) -> McpToolRegistry:
 
 
 async def test_discover_populates_the_registry(registry: McpToolRegistry) -> None:
-    assert registry.list_tools() == ["search_assets"]
+    # The full 10-tool roster is asserted in test_mcp_server_discovery.py -- this
+    # registry test only cares that discovery populated at least the walking-skeleton
+    # tool it goes on to invoke below.
+    assert "search_assets" in registry.list_tools()
 
 
 async def test_call_tool_returns_a_tool_invocation_with_real_data(

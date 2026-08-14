@@ -18,7 +18,9 @@ async def test_search_assets_tool_is_discoverable(mcp_alarm_server_url: str) -> 
         await session.initialize()
         listed = await session.list_tools()
         names = {t.name for t in listed.tools}
-        assert names == {"search_assets"}
+        # The full 10-tool roster is asserted in test_mcp_server_discovery.py -- this
+        # file only cares that search_assets itself is discoverable and well-formed.
+        assert "search_assets" in names
         tool = next(t for t in listed.tools if t.name == "search_assets")
         assert "query" in tool.inputSchema["properties"]
         assert tool.outputSchema is not None
