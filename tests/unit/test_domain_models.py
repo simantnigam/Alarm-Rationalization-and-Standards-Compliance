@@ -65,7 +65,7 @@ class TestAsset:
         # separate enums -- a criticality must never be silently accepted where a
         # severity is expected, or vice versa.
         assert Criticality.HIGH.value == AlarmSeverity.HIGH.value
-        assert Criticality.HIGH is not AlarmSeverity.HIGH  # type: ignore[comparison-overlap]
+        assert Criticality.HIGH is not AlarmSeverity.HIGH
 
 
 class TestAlarm:
@@ -220,6 +220,7 @@ class TestVerdict:
     def test_verdict_constructs_with_clause_ref(self) -> None:
         verdict = Verdict(
             rule_id="SAF-001",
+            alarm_code="BFP101-VIB-HH",
             doc_id="SAF-INST-005",
             clause_id="2.1",
             status=VerdictStatus.FAIL,
@@ -234,6 +235,7 @@ class TestVerdict:
     def test_pass_status_accepted(self) -> None:
         verdict = Verdict(
             rule_id="SUP-001",
+            alarm_code="BFP101-VIB-HH",
             doc_id="ALM-CRIT-003",
             clause_id="3.1",
             status=VerdictStatus.PASS,
@@ -243,6 +245,20 @@ class TestVerdict:
             message="Meets minimum occurrence evidence.",
         )
         assert verdict.status is VerdictStatus.PASS
+
+    def test_rejects_an_empty_message(self) -> None:
+        with pytest.raises(ValidationError, match="non-empty"):
+            Verdict(
+                rule_id="SUP-001",
+                alarm_code="BFP101-VIB-HH",
+                doc_id="ALM-CRIT-003",
+                clause_id="3.1",
+                status=VerdictStatus.PASS,
+                measured=30,
+                threshold=25,
+                margin=5,
+                message="   ",
+            )
 
 
 class TestToolInvocationAndTrace:

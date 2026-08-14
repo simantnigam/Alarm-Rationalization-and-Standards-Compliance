@@ -103,7 +103,9 @@ class TestPoisonedDocumentQuarantine:
             limit=3,
             with_payload=True,
         )
-        assert any(p.payload is not None and p.payload["doc_id"] == "SEC-TEST-999" for p in raw.points)
+        assert any(
+            p.payload is not None and p.payload["doc_id"] == "SEC-TEST-999" for p in raw.points
+        )
 
         service = _service(corpus_client, embedder, rerank_enabled=False, top_k=8)
         result = service.retrieve(query)

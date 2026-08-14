@@ -44,7 +44,9 @@ rules:
     source: { doc_id: ALM-CRIT-003, clause_id: "3.4" }
     applies_to: { site_scope: ALL }
     predicate: { metric: unacknowledged_rate, op: ">=", value: 0.30 }
-    outcome_when_false: NEEDS_REVIEW # weak evidence, not prohibited
+    # A high rate doesn't prohibit suppression outright (it's not outcome_when_true:
+    # FAIL) -- it's weak evidence that needs a human look, same pattern as RAT-001/002.
+    outcome_when_true: NEEDS_REVIEW
     message: "Unacknowledged rate at or above 30% requires manual Alarm Owner review."
 
   - rule_id: SITE-NP-001
